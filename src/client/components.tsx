@@ -3,7 +3,7 @@
 import React from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { OverviewPayload, UsageDetail, UsageTotals, UsageTurn } from '../types.ts'
-import { fetchOverview, fetchSession, fetchTurn, overviewUrl } from './api.ts'
+import { fetchOverview, fetchSession, fetchTurn, refreshOverview, overviewUrl } from './api.ts'
 
 /** Explicitly imported so component props carry it (it is already part of PropsRuntime). */
 type HeaderUtilProps = PropsRuntime<'conversation.session.header.utilities'>
@@ -78,18 +78,24 @@ function useSessionUsage(sessionId: string, useSession: HeaderUtilProps['useSess
 
 export function PeriodBadge(): React.ReactElement | null {
   const [info, setInfo] = React.useState<{ period: 'peak' | 'offpeak'; overview: OverviewPayload } | null>(null)
+  // No polling loop: fetch the (deduped + cached) overview once on mount so the
+  // peak/off-peak period tag shows, then re-check on a very slow 5-minute cadence
+  // (interval = cheap cached/deduped call, not a hot request stream).
   React.useEffect(() => {
     let alive = true
-    let timer: number | undefined
-    const tick = (): void => {
-      void fetchOverview().then((overview) => {
-        if (!alive || !overview) return
+    void fetchOverview().then((overview) => {
+      if (alive && overview) {
         setInfo(prev => (prev && prev.period === overview.period ? prev : { period: overview.period, overview }))
-        timer = window.setTimeout(tick, 60000)
-      }).catch(() => { timer = window.setTimeout(tick, 60000) })
-    }
-    tick()
-    return () => { alive = false; if (timer !== undefined) window.clearTimeout(timer) }
+      }
+    }).catch(() => { /* ignore; badge just stays hidden */ })
+    const timer = window.setInterval(() => {
+      void fetchOverview().then((overview) => {
+        if (alive && overview) {
+          setInfo(prev => (prev && prev.period === overview.period ? prev : { period: overview.period, overview }))
+        }
+      }).catch(() => {})
+    }, 5 * 60 * 1000) // 5 minutes
+    return () => { alive = false; window.clearInterval(timer) }
   }, [])
   if (!info) return null
   const peak = info.period === 'peak'
@@ -154,22 +160,22 @@ export function TurnTokens(props: TurnTailProps): React.ReactElement | null {
   const sessionId = props.sessionId
   const turn = props.matched.turn
   const [data, setData] = React.useState<UsageTurn | null>(null)
+  // Fetch ONCE per (sessionId, turn) when the tail mounts (it is only rendered
+  // for closed turns). No polling: if the request arrives empty we quietly stop
+  // and let a re-mount (e.g. navigating the conversation) trigger a retry. The
+  // underlying fetchSession is deduped + cached, so even if several tails mount
+  // together they share a single request to the host.
+  const requested = React.useRef<Set<string>>(new Set())
   React.useEffect(() => {
     if (!sessionId || turn === undefined) return
+    const key = `${sessionId}|${turn}`
+    if (requested.current.has(key)) return
+    requested.current.add(key)
     let alive = true
-    let attempts = 0
-    let timer: number | undefined
-    const tick = (): void => {
-      attempts += 1
-      void fetchTurn(sessionId, turn).then((value) => {
-        if (!alive) return
-        if (value) { setData(value); if (timer !== undefined) window.clearInterval(timer) }
-        else if (attempts >= 3 && timer !== undefined) window.clearInterval(timer)
-      }).catch(() => { if (attempts >= 3 && timer !== undefined) window.clearInterval(timer) })
-    }
-    tick()
-    timer = window.setInterval(tick, 1000)
-    return () => { alive = false; if (timer !== undefined) window.clearInterval(timer) }
+    void fetchTurn(sessionId, turn)
+      .then((value) => { if (alive) setData(value) })
+      .catch(() => { /* keep existing data, no retry storm */ })
+    return () => { alive = false }
   }, [sessionId, turn])
   if (!data || data.messages === 0) return null
   const title = `回合 #${data.turn}：输入 ${fmtFull(data.input)} / 输出 ${fmtFull(data.output)}`
@@ -190,7 +196,7 @@ export function TokenView(props: TokenViewProps): React.ReactElement {
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
   const [detail, setDetail] = React.useState<UsageDetail | null>(null)
   const refresh = (): void => {
-    void fetchOverview().then(value => { if (value) setData(value) }).catch(() => {})
+    void refreshOverview().then(value => { if (value) setData(value) }).catch(() => {})
   }
   React.useEffect(() => {
     if (!sessionId) return
