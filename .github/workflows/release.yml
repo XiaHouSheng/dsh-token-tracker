@@ -25,16 +25,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # pnpm/action-setup MUST come before setup-node with `cache: pnpm`:
+      # setup-node's pnpm cache path resolution needs `pnpm` already on PATH.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          run_install: false
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - name: Install build tooling
         run: pnpm install --frozen-lockfile
