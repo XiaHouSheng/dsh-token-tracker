@@ -4,11 +4,11 @@
   "description": "Fold provider token usage from the durable session log, price it with a peak/off-peak table, and surface totals in the dsh web GUI plus a standalone overview page and JSON API. Standalone bundle form of @deepseek-ai/dsh-token-tracker.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/dsh-token-tracker.git"
+    "url": "git+https://github.com/XiaHouSheng/dsh-token-tracker.git"
   },
-  "homepage": "https://github.com/your-org/dsh-token-tracker",
+  "homepage": "https://github.com/XiaHouSheng/dsh-token-tracker",
   "bugs": {
-    "url": "https://github.com/your-org/dsh-token-tracker/issues"
+    "url": "https://github.com/XiaHouSheng/dsh-token-tracker/issues"
   },
   "type": "module",
   "main": "lib/index.js",

@@ -1,31 +1,9 @@
-/**
- * Stage + pack a standalone, self-contained tarball for dsh-token-tracker.
- *
- * The resulting `.tgz` is installed by end users with
- *   dsh plugin --profile <name> add ./dsh-token-tracker-<version>.tgz
- * It ships `dsh.bundle` (activates a layer via `cordis.patch.yml`) and
- * `dsh.client` (the browser half is auto-discovered and served), plus a
- * prebuilt `lib/` (host + browser + type declarations) so no install-time
- * build or build-script permission is required.
- *
- * This script is fully self-contained: it needs only this repo checked out
- * (with `pnpm install` run once at the root so `typescript`/`tsdown` are
- * available) and touches no harness checkout.
- *
- *   Type declarations  -> `tsc -p tsconfig.json` emits `lib/types` from `src/`
- *                         (the repo-local tsconfig is self-contained: it
- *                         resolves `@deepseek-ai/*` to ambient stubs under
- *                         `types.stub/`, so no peer package has to be pulled).
- *   Host/Web bundles   -> `tsdown -c publish/tsdown.config.ts` (self-contained
- *                         config, with TS decorator lowering for `@Remote`).
- *   Pack               -> `pnpm pack` inside the stage.
- *
- * Usage:  node pack.mjs   -> dsh-token-tracker-<version>.tgz  (at repo root)
- */
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync } from 'node:fs'
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join, resolve } from 'node:path'
+
+const skipPack = process.argv.includes('--skip-pack')
 
 const root = resolve(import.meta.dirname)
 const stage = join(root, 'standalone')
@@ -115,11 +93,37 @@ if (existsSync(join(root, 'lib', 'types'))) {
   process.exit(1)
 }
 
-// 4. Pack the stage. pnpm prints the generated tarball path to stdout.
-console.log(`\npacking standalone tarball into ${root} ...`)
-try {
-  runPnpm(['pack', '--pack-destination', root], { cwd: stage })
-} catch (error) {
-  console.error('pack failed', error)
-  process.exit(1)
+// 3b. Copy the full built `lib/` + `cordis.patch.yml` back to the repo root so
+//     `dsh plugin add <git-url | local-path>` works directly (no install-time build).
+//     Also swap the root manifest to the publish form (with harness peer deps)
+//     so `dsh plugin add ./local-dir` works straight away. The user can restore
+//     the dev manifest with `npm run restore-dev` (or `git checkout -- package.json`).
+rmSync(join(root, 'lib'), { recursive: true, force: true })
+cpSync(join(stage, 'lib'), join(root, 'lib'), { recursive: true })
+copyFileSync(join(publish, 'cordis.patch.yml'), join(root, 'cordis.patch.yml'))
+
+const rootManifestPath = join(root, 'package.json')
+const rootManifestBak = join(root, 'package.json.dev.bak')
+if (!existsSync(rootManifestBak)) {
+  copyFileSync(rootManifestPath, rootManifestBak)
+}
+const publishManifest = JSON.parse(readFileSync(join(publish, 'package.json'), 'utf8'))
+const rootDevManifest = JSON.parse(readFileSync(existsSync(rootManifestBak) ? rootManifestBak : rootManifestPath, 'utf8'))
+const mergedForRoot = {
+  ...rootDevManifest,
+  peerDependencies: { ...publishManifest.peerDependencies },
+}
+writeFileSync(rootManifestPath, JSON.stringify(mergedForRoot, null, 2) + '\n')
+
+// 4. Pack the stage (optional). pnpm prints the generated tarball path to stdout.
+if (skipPack) {
+  console.log(`\n--skip-pack: lib/ synced to repo root, tarball skipped.`)
+} else {
+  console.log(`\npacking standalone tarball into ${root} ...`)
+  try {
+    runPnpm(['pack', '--pack-destination', root], { cwd: stage })
+  } catch (error) {
+    console.error('pack failed', error)
+    process.exit(1)
+  }
 }

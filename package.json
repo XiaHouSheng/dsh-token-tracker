@@ -1,12 +1,70 @@
 {
   "name": "dsh-token-tracker",
   "version": "0.1.0",
-  "description": "Build workspace for the standalone dsh-token-tracker bundle. Running `node pack.mjs` stages a self-contained tarball (publish/package.json manifest + src) for distribution. This root manifest is NOT the shipped package — see publish/package.json.",
-  "private": true,
+  "description": "Fold provider token usage from the durable session log, price it with a peak/off-peak table, and surface totals in the dsh web GUI plus a standalone overview page and JSON API.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/XiaHouSheng/dsh-token-tracker.git"
+  },
+  "homepage": "https://github.com/XiaHouSheng/dsh-token-tracker",
+  "bugs": {
+    "url": "https://github.com/XiaHouSheng/dsh-token-tracker/issues"
+  },
   "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/client.js",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
   "scripts": {
+    "prepack": "node scripts/prepack.mjs",
+    "postpack": "node scripts/postpack.mjs",
+    "build": "node pack.mjs --skip-pack",
     "pack": "node pack.mjs",
+    "restore-dev": "node scripts/restore-dev-manifest.mjs",
     "build:types": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-session-query": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-token-meter": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.5",
+    "@deepseek-ai/cordis": "^0.1.0-rc.5",
+    "react": "^18 || ^19"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
