@@ -1,0 +1,86 @@
+name: release
+
+# Automatically build the standalone tarball and attach it to a GitHub Release
+# whenever a version tag (`v<version>`) is pushed (e.g. `git tag v0.2.0 && git
+# push origin v0.2.0`). Can also be run manually from the Actions tab.
+#
+# The tarball it uploads is exactly the artifact end users install with:
+#   dsh plugin --profile web add ./dsh-token-tracker-<version>.tgz
+# See RELEASING.md for the full manual/CLI flow.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build & publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the GitHub Release + upload the tarball
+      packages: write        # (reserved) publish to GHCR/package scope later
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install build tooling
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & pack standalone tarball
+        run: node pack.mjs
+
+      - name: Resolve tarball + version
+        id: vars
+        shell: bash
+        run: |
+          # The repo devDependencies are the only packages the build needs; the
+          # `@deepseek-ai/*` peers are resolved via the stubs under types.stub/
+          # and are NOT installed here — pack.mjs emits lib/ from src/ only.
+          version="$(node -e "console.log(require('./publish/package.json').version)")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tarball=$(ls dsh-token-tracker-${version}.tgz)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: dsh-token-tracker ${{ steps.vars.outputs.version }}
+          body: |
+            ## Install
+
+            Two-step install (install the harness first, then this plugin):
+
+            ~~~
+            git clone --depth 1 https://github.com/deepseek-ai/deepseek-harness.git
+            cd deepseek-harness
+            pnpm install
+            # back in a terminal that has `dsh` (or use ./node_modules/.bin/dsh):
+            dsh plugin --profile web add ./dsh-token-tracker-${{ steps.vars.outputs.version }}.tgz
+            ~~~
+
+            Verify the layer is present, then boot the web server:
+
+            ~~~
+            dsh --profile web --dump-config
+            dsh --profile web
+            # open /dsh-token-tracker (overview) and /dsh-token-tracker/api (JSON)
+            ~~~
+
+            ## Files
+            - `dsh-token-tracker-${{ steps.vars.outputs.version }}.tgz` — self-contained installable bundle (host + browser + types + `cordis.patch.yml` + LICENSE). Installed via `dsh plugin add`.
+          files: ${{ steps.vars.outputs.tarball }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

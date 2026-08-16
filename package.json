@@ -1,0 +1,19 @@
+{
+  "name": "dsh-token-tracker",
+  "version": "0.1.0",
+  "description": "Build workspace for the standalone dsh-token-tracker bundle. Running `node pack.mjs` stages a self-contained tarball (publish/package.json manifest + src) for distribution. This root manifest is NOT the shipped package — see publish/package.json.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pack": "node pack.mjs",
+    "build:types": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
+  }
+}
