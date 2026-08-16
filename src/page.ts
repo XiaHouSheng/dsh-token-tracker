@@ -239,9 +239,9 @@ render(data);
 }).catch(function(err){updatedEl.textContent='加载失败: '+err.message})}
 document.getElementById('refresh').addEventListener('click',load);
 load();
-// Slow auto-refresh (30s) instead of a 3s poll, and pause while the tab is
-// in the background so it doesn't keep hammering the API unnoticed.
-var POLL=30000, pollTimer=null;
+// Very slow auto-refresh (10 minutes) instead of the old 3s poll, and pause
+// while the tab is in the background so it doesn't keep calling the API.
+var POLL=600000, pollTimer=null;
 function startPoll(){if(pollTimer===null)pollTimer=setInterval(load,POLL)}
 function stopPoll(){if(pollTimer!==null){clearInterval(pollTimer);pollTimer=null}}
 document.addEventListener('visibilitychange',function(){
