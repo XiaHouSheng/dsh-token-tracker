@@ -191,8 +191,9 @@ dsh --profile web                     # boot; then check:
   They are satisfied by a matching harness install; keep them in step with the
   deployed harness edition, or `dsh plugin add` will warn about unsatisfied
   peers.
-- The overview page polls every 3 seconds; very large session logs are capped at
-  the first 300 sessions in the table.
+- The overview page auto-refreshes on a slow 30-second interval (and pauses
+  while the tab is hidden); very large session logs are capped at the first 300
+  sessions in the table.
 
 ## License
 

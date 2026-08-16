@@ -239,7 +239,15 @@ render(data);
 }).catch(function(err){updatedEl.textContent='加载失败: '+err.message})}
 document.getElementById('refresh').addEventListener('click',load);
 load();
-setInterval(load,3000);
+// Slow auto-refresh (30s) instead of a 3s poll, and pause while the tab is
+// in the background so it doesn't keep hammering the API unnoticed.
+var POLL=30000, pollTimer=null;
+function startPoll(){if(pollTimer===null)pollTimer=setInterval(load,POLL)}
+function stopPoll(){if(pollTimer!==null){clearInterval(pollTimer);pollTimer=null}}
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){stopPoll()}else{startPoll(); if(document.getElementById('updated'))load()}
+});
+if(!document.hidden)startPoll();
 })();
 </script>
 </body>
