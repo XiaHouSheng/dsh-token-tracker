@@ -1,11 +1,14 @@
 /**
- * Self-contained publish build for the standalone dsh-token-tracker bundle.
+ * Self-contained publish build for the dsh-token-tracker plugin.
  *
- * Unlike the in-repo tsdown.config.ts (which imports the harness-internal
- * `clientBundle` preset), this config depends only on published npm packages
- * and builds straight from `src/` (no prior `tsc`, no project references, no
- * type check), so it works on a fresh git checkout or a tarball with no build
- * artifacts. It emits:
+ * This config lives under `publish/` but all paths it references (`src/`,
+ * `tsconfig.json`, `lib/` outDir) sit at the **repo root**, one level up.
+ * tsdown resolves entry / outDir / tsconfig relative to the config file's
+ * own directory, so they are prefixed with `../` here. `pack.mjs` invokes it
+ * as `tsdown --config publish/tsdown.config.ts`.
+ *
+ * Depends only on published npm packages and builds straight from `src/`
+ * (no prior `tsc`, no project references, no type check). Emits:
  *   - Host:  lib/index.js + lib/invariant.js  (node; @deepseek-ai/* and node:*
  *            stay external, resolved from the profile's installed deps)
  *   - Web:   lib/client.js                    (browser, __ModuleLoader__ handoff)
@@ -56,35 +59,32 @@ const decoratorLowering = {
 // external so the profile's installed peer deps provide them at runtime.
 const hostConfig: UserConfig = {
   name: ID,
-  entry: ['src/index.ts', 'src/invariant.ts'],
-  outDir: 'lib',
+  entry: ['../src/index.ts', '../src/invariant.ts'],
+  outDir: '../lib',
   format: ['esm'],
   platform: 'node',
   target: 'es2024',
   fixedExtension: false,
   dts: false,
   clean: true,
-  // The standalone repo keeps a single self-contained tsconfig.json at its
-  // root (copied into the build stage by pack.mjs). Point at it explicitly so
-  // tsdown never walks up to a harness tsconfig. Verbose:false keeps the
-  // bundle free of meaningless "verbatim" markers and matches no type-check
-  // during the JS-only publish build.
-  tsconfig: './tsconfig.json',
+  // Point at the repo-root tsconfig explicitly so tsdown never walks up to a
+  // harness tsconfig. Paths are relative to this config file (publish/).
+  tsconfig: '../tsconfig.json',
   external: (id: string) => id.startsWith('@deepseek-ai/') || id.startsWith('node:'),
   plugins: [decoratorLowering],
 }
 
 const clientConfig: UserConfig = {
   name: `${ID}/client`,
-  entry: { client: 'src/client/index.ts' },
-  outDir: 'lib',
+  entry: { client: '../src/client/index.ts' },
+  outDir: '../lib',
   format: 'cjs',
   platform: 'browser',
   target: 'es2024',
   dts: false,
   sourcemap: true,
   clean: false,
-  tsconfig: './tsconfig.json',
+  tsconfig: '../tsconfig.json',
   external: CLIENT_EXTERNALS,
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
