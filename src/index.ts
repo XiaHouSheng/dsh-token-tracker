@@ -40,7 +40,16 @@ const PERSISTED_TTL = 30000
 export class TokenTrackerService extends TypertRemoteService {
   static inject = ['webServer']
 
-  private readonly cache = new Map<string, CacheEntry>()
+  /**
+   * In-memory token store. It is the single source of truth for token usage:
+   *   - `session/event` folds every event into the store immediately (for any
+   *     session id), regardless of whether anything has asked for it yet;
+   *   - the REST/Remote APIs read ONLY this store (never rescan the whole
+   *     session log on every request); a session whose events are not flowing
+   *     (e.g. old archived ones) is lazily back-filled from its durable log
+   *     once, then kept fresh by subsequent events.
+   */
+  private readonly store = new Map<string, CacheEntry>()
   private pricingOverride: PricingTable | null = null
   private pricingCache: { at: number; table: PricingTable; source: 'local' | 'file' | 'default' } | null = null
 
@@ -56,12 +65,19 @@ export class TokenTrackerService extends TypertRemoteService {
       path: '/dsh-token-tracker/api',
       handler: (req, res) => void this.serveOverviewApi(req, res),
     }), 'token-tracker: overview api')
+    // Event-driven store writes: fold every event the moment it arrives. We
+    // ensure an entry exists first so live/closed session data is always in the
+    // store without needing a prior API call.
     ctx.on('session/event', (session, event) => {
       if (typeof session.id !== 'string') return
-      const cached = this.cache.get(session.id)
-      if (!cached || !cached.live) return
-      foldEvent(cached.usage, event, this.estimate.bind(this))
-      cached.seq += 1
+      let entry = this.store.get(session.id)
+      if (!entry || !entry.live) {
+        entry = { seq: 0, live: true, scannedAt: Date.now(), usage: newUsage() }
+        this.store.set(session.id, entry)
+      }
+      foldEvent(entry.usage, event, this.estimate.bind(this))
+      entry.seq += 1
+      entry.scannedAt = Date.now()
     })
   }
 
@@ -127,35 +143,52 @@ export class TokenTrackerService extends TypertRemoteService {
   // ---- usage --------------------------------------------------------------
 
   private async getUsage(sessionId: string): Promise<CacheEntry | null> {
-    const cached = this.cache.get(sessionId) ?? null
+    // The store is the source of truth and is kept fresh by `session/event`.
+    // For a live session, reconcile against the in-memory session's event list
+    // by count to catch anything that arrived between event writes.
     const sessions = this.ctx.get('sessions') as { get?: (id: string) => Session | undefined } | undefined
     let live: Session | undefined
     if (sessions?.get) {
       try { live = sessions.get(sessionId) } catch { live = undefined }
     }
+
+    const entry = this.store.get(sessionId) ?? null
     if (live) {
       const events = Array.isArray(live.events) ? live.events : []
-      if (cached && cached.live && cached.seq === events.length) return cached
-      const usage = cached && cached.live ? cached.usage : newUsage()
-      const from = cached && cached.live ? cached.seq : 0
+      // Ensure a store entry exists for a live session.
+      if (!entry) {
+        const fresh: CacheEntry = { seq: 0, live: true, scannedAt: Date.now(), usage: newUsage() }
+        this.store.set(sessionId, fresh)
+      }
+      const cur = this.store.get(sessionId)! as CacheEntry
+      cur.live = true
+      cur.scannedAt = Date.now()
+      const from = cur.seq
       const count = events.length
-      for (let i = from; i < count; i++) foldEvent(usage, events[i], this.estimate.bind(this))
-      const entry: CacheEntry = { seq: count, live: true, scannedAt: Date.now(), usage }
-      this.cache.set(sessionId, entry)
-      return entry
+      if (from < count) {
+        for (let i = from; i < count; i++) foldEvent(cur.usage, events[i], this.estimate.bind(this))
+        cur.seq = count
+      }
+      return cur
     }
-    if (cached && !cached.live && Date.now() - cached.scannedAt < PERSISTED_TTL) return cached
+
+    // Persisted/archived session: serve the store's cached value if fresh, else
+    // lazily back-fill it from the durable log once (subsequent requests within
+    // TTL reuse the store without touching the log).
+    if (entry && Date.now() - entry.scannedAt < PERSISTED_TTL) return entry
     const sessionQuery = this.ctx.get('sessionQuery') as { readSession?: (id: string) => Promise<{ events: SessionEvent[] }> } | undefined
-    if (!sessionQuery?.readSession) return cached
+    if (!sessionQuery?.readSession) return entry
     let snapshot: { events: SessionEvent[] } | undefined
-    try { snapshot = await sessionQuery.readSession(sessionId) } catch { return cached }
+    try { snapshot = await sessionQuery.readSession(sessionId) } catch { return entry }
     const events = Array.isArray(snapshot?.events) ? snapshot.events : []
+    // Reliable incremental folding needs a monotonic seq per message; we don't
+    // have that from the store alone, so for archived sessions fold from
+    // scratch and cache the result. Live updates keep it warm via session/event.
     const usage = newUsage()
     foldEvents(usage, events, this.estimate.bind(this))
-    const lastSeq = events.length ? (events[events.length - 1]?.seq ?? 0) : 0
-    const entry: CacheEntry = { seq: lastSeq, live: false, scannedAt: Date.now(), usage }
-    this.cache.set(sessionId, entry)
-    return entry
+    const next: CacheEntry = { seq: events.length, live: false, scannedAt: Date.now(), usage }
+    this.store.set(sessionId, next)
+    return next
   }
 
   private async buildOverview(pricing: { table: PricingTable; source: 'local' | 'file' | 'default' }): Promise<OverviewPayload> {
